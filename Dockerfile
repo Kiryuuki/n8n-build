@@ -4,16 +4,18 @@ FROM n8nio/n8n:${N8N_VERSION}
 USER root
 
 # Install system dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     xvfb \
-    nss \
-    freetype \
-    harfbuzz \
+    libnspr4 \
+    libfreetype6 \
+    libharfbuzz0b \
     ca-certificates \
-    ttf-freefont \
+    fonts-freefont-ttf \
     dbus \
-    su-exec
+    su-exec \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Pre-install community node at build time
 RUN mkdir -p /home/node/.n8n/custom && \
