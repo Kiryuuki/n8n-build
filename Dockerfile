@@ -44,7 +44,7 @@ COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 
 # Copy Xvfb and su-exec
 COPY --from=browser-installer /usr/bin/Xvfb /usr/bin/Xvfb
-COPY --from=browser-installer /usr/bin/su-exec /usr/bin/su-exec
+COPY --from=browser-installer /sbin/su-exec /usr/local/bin/su-exec
 
 # Copy all shared libs needed by Chromium (usr/lib)
 COPY --from=browser-installer /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6

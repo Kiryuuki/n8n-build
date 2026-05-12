@@ -23,4 +23,4 @@ echo "[ENTRYPOINT] Chrome CDP listening on :9222"
 echo "[ENTRYPOINT] Starting n8n as node user..."
 
 # 3. Hand off to n8n as node user
-exec su-exec node n8n start
+exec /usr/local/bin/su-exec node n8n start
