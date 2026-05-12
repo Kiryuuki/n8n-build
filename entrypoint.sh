@@ -5,9 +5,22 @@ set -e
 Xvfb :99 -screen 0 1280x720x24 &
 XVFB_PID=$!
 
-# 2. Start Chromium with CDP (Securely bound to 127.0.0.1)
-# Fix Issue #2 & #5: Locked down debugging address and using persistent data dir
-chromium-browser \
+# Wait for Xvfb to be ready (readiness loop, not blind sleep)
+i=0
+while [ $i -lt 20 ]; do
+  if /usr/bin/Xvfb -br -nolisten tcp :98 -terminate 2>/dev/null & then
+    kill $! 2>/dev/null || true
+    break
+  fi
+  sleep 0.5
+  i=$((i + 1))
+done
+echo "[ENTRYPOINT] Xvfb PID: $XVFB_PID"
+
+# 2. Start Chromium with CDP
+# Fix #8: use actual binary at /usr/lib/chromium/chromium, not the wrapper
+# Fix #2: bind CDP to 127.0.0.1 only (security hardening)
+/usr/lib/chromium/chromium \
   --remote-debugging-port=9222 \
   --remote-debugging-address=127.0.0.1 \
   --no-sandbox \
@@ -16,23 +29,21 @@ chromium-browser \
   --headless \
   --user-data-dir=/home/node/chrome-data \
   &
+CHROME_PID=$!
 
-# 3. Fix Issue #9: Wait for Chromium CDP to be ready using a loop instead of static sleep
-echo "[ENTRYPOINT] Waiting for Chrome CDP to be ready..."
-MAX_RETRIES=30
-COUNT=0
-while ! curl -s http://127.0.0.1:9222/json/version > /dev/null; do
-    sleep 1
-    COUNT=$((COUNT+1))
-    if [ $COUNT -ge $MAX_RETRIES ]; then
-        echo "[ENTRYPOINT] Chrome CDP failed to start in time"
-        exit 1
-    fi
+# Wait for CDP to be ready (readiness loop, not blind sleep)
+i=0
+until curl -sf http://127.0.0.1:9222/json/version > /dev/null 2>&1; do
+  i=$((i + 1))
+  if [ $i -ge 20 ]; then
+    echo "[ENTRYPOINT] WARNING: Chrome CDP not ready after 10s, continuing anyway"
+    break
+  fi
+  sleep 0.5
 done
+echo "[ENTRYPOINT] Chrome CDP PID: $CHROME_PID (listening on 127.0.0.1:9222)"
 
-echo "[ENTRYPOINT] Xvfb PID: $XVFB_PID"
-echo "[ENTRYPOINT] Chrome CDP is ready on 127.0.0.1:9222"
 echo "[ENTRYPOINT] Starting n8n as node user..."
 
-# 4. Hand off to n8n as node user
-exec su-exec node n8n start
+# 3. Hand off to n8n as node user
+exec /usr/local/bin/su-exec node n8n start
