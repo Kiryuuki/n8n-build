@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: ghcr.io/kiryuuki/n8n-playwright:1.70.0
+    image: ghcr.io/kiryuuki/n8n-playwright:2.19.5
     container_name: n8n-playwright
     restart: unless-stopped
     env_file: .env

@@ -1,5 +1,5 @@
-ARG N8N_VERSION=1.70.0
-# Note: Use a specific version like 1.70.0 for reproducibility. 
+ARG N8N_VERSION=2.19.5
+# Note: Use a specific version like 2.19.5 for reproducibility. 
 
 # ── Stage 1: Alpine — install Chromium + build community node ─────────────────
 FROM alpine:3.22 AS browser-installer
