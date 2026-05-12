@@ -26,3 +26,4 @@ dist/
 # Local n8n data (if any)
 .n8n/
 files/
+reference/
