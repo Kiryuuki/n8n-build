@@ -21,14 +21,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # GHCR requires all-lowercase owner name
-      - name: Set image name
+      - name: Set image name (lowercase)
         id: image
         run: |
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           echo "full=ghcr.io/${OWNER}/n8n-playwright" >> $GITHUB_OUTPUT
 
-      # Priority: workflow input > repo variable > hardcoded default
       - name: Resolve n8n version
         id: version
         run: |
@@ -63,7 +61,8 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          # amd64 only — arm64 QEMU crashes on isolated-vm C++ compilation
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

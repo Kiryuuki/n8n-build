@@ -15,7 +15,6 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - n8n_files:/home/node/files
-    # Chromium renderer uses shared memory — default Docker 64MB causes crashes
     shm_size: "256mb"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
