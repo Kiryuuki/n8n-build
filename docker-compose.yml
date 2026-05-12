@@ -1,15 +1,24 @@
 services:
   n8n:
-    image: ghcr.io/kiryuuki/n8n-playwright:latest
+    image: ghcr.io/kiryuuki/n8n-playwright:1.70.0
     container_name: n8n-playwright
     restart: unless-stopped
     env_file: .env
     ports:
       - "5678:5678"
-      - "9222:9222"
+      - "127.0.0.1:9222:9222" # Security: Bind CDP to localhost only
     volumes:
       - n8n_data:/home/node/.n8n
       - n8n_files:/home/node/files
+    deploy:
+      resources:
+        limits:
+          memory: 2G # Stability: Prevent Chromium from exhausting host memory
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
       interval: 30s
