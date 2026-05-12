@@ -1,28 +1,28 @@
 # n8n-playwright Docker Image
 
-A single self-contained Docker image for n8n with Chromium CDP, pre-installed community Playwright node, and execution hooks for Supabase logging.
+A specialized Docker image for n8n that includes a pre-configured Chromium environment for Playwright, automated execution hooks for Supabase, and a robust multi-stage build process.
 
 ## 1. Overview
-This image combines **n8n** with **Chromium** (running in Xvfb) and the **n8n-nodes-playwright** community node. It also includes an execution hook to log workflow results directly to a Supabase table.
-
-- **n8n**: Workflow automation tool.
-- **Chromium CDP**: Remote debugging enabled on port 9222.
-- **Playwright Node**: Pre-installed and ready to use.
-- **Execution Hooks**: Automatically logs executions to Supabase.
+This image is designed for high-reliability web automation within n8n. It bundles:
+- **n8n**: The core workflow automation tool.
+- **Chromium CDP**: Remote debugging enabled on port `9222` with Xvfb for headless operation.
+- **Playwright Community Node**: Pre-installed (`n8n-nodes-playwright`) and pre-configured to use the system Chromium.
+- **Execution Hooks**: Automatically pushes workflow execution status and IDs to a Supabase table.
+- **Smart Build**: A multi-stage build process that ensures Chromium stability and correct library mapping.
 
 ## 2. Quick Start
-1. **Clone** this repository:
+1. **Clone** the repository:
    ```bash
-   git clone <repo-url>
-   cd n8n-playwright
+   git clone https://github.com/Kiryuuki/n8n-build
+   cd n8n-build
    ```
 2. **Configure environment**:
    ```bash
    cp .env.example .env
-   # Edit .env and fill in your values
+   # Edit .env and fill in your Supabase and n8n credentials
    ```
 3. **Run Supabase Migration**:
-   Execute the contents of `supabase_migration.sql` in your Supabase SQL Editor to create the `n8n_execution_logs` table.
+   Copy the content of `supabase_migration.sql` and run it in your Supabase SQL Editor to create the necessary logging table.
 4. **Deploy**:
    ```bash
    docker compose up -d
@@ -30,32 +30,41 @@ This image combines **n8n** with **Chromium** (running in Xvfb) and the **n8n-no
 
 ## 3. Ports
 - `5678`: n8n Web UI
-- `9222`: Chrome CDP (Remote Debugging)
+- `9222`: Chrome CDP (Remote Debugging Address)
 
 ## 4. Connect Playwright to CDP
-You can connect your Playwright scripts to the browser running inside the container:
-- **From host machine**: `ws://localhost:9222`
-- **Internal (other containers)**: `ws://n8n-playwright:9222`
+You can connect external Playwright scripts or other containers to the browser instance:
+- **From Host**: `ws://localhost:9222`
+- **Internal Network**: `ws://n8n-playwright:9222`
 
 ## 5. Playwright Community Node
-The `n8n-nodes-playwright` package is pre-installed. You can find it in the n8n node picker after the container starts. It is configured to use the internal Chromium instance by default.
+The `n8n-nodes-playwright` node is baked into the image. 
+- It is located in `/home/node/.n8n/custom`.
+- It is automatically "tricked" into using the system Chromium via a symlink strategy, preventing large browser downloads at runtime.
 
-## 6. Upgrade n8n
-To upgrade the n8n version:
-1. Update `N8N_VERSION` in your GitHub repository's **Settings → Variables → Actions**.
-2. Re-run the CI/CD workflow.
-3. On your server, run:
+## 6. CI/CD & Upgrades
+The repository includes a GitHub Actions workflow (`docker-publish.yml`) that builds and pushes the image to GHCR.
+
+**To upgrade n8n version:**
+1. Go to your GitHub Repo **Settings → Variables → Actions**.
+2. Update the `N8N_VERSION` variable.
+3. Re-run the `Build and Push` workflow.
+4. On your production server:
    ```bash
    docker compose pull && docker compose up -d
    ```
 
 ## 7. Execution Hooks
-The image includes `execution-hooks.js` which pushes logs to Supabase.
-- Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are set in your `.env`.
-- Ensure the `n8n_execution_logs` table exists (run `supabase_migration.sql`).
+The `execution-hooks.js` file is automatically loaded. It logs:
+- `execution_id`
+- `workflow_name`
+- `status` (success/failed)
+
+Ensure your `.env` contains `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`.
 
 ## 8. Local Build
-To build the image locally:
+If you want to build the image locally with a specific n8n version:
 ```bash
 docker build --build-arg N8N_VERSION=2.19.5 -t n8n-playwright .
 ```
+*(Note: The build uses a multi-stage Alpine process to ensure Chromium compatibility across different base OS variants.)*
