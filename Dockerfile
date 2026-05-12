@@ -1,10 +1,9 @@
 ARG N8N_VERSION=2.19.5
 
-# ── Stage 1: Alpine 3.22 — all installs happen here ──────────────────────────
-# n8nio/n8n v2.1+ strips apk, so we must COPY everything into Stage 2.
+# ── Stage 1: Alpine 3.22 ───────────────────────────────────────────────────────
+# All installs here — n8nio/n8n v2.1+ strips apk from the final image.
 FROM alpine:3.22 AS builder
 
-# Install build tools + chromium + all deps
 RUN apk add --no-cache \
     python3 make g++ nodejs npm \
     chromium \
@@ -17,17 +16,17 @@ RUN apk add --no-cache \
     dbus dbus-libs udev su-exec \
     libthai libdatrie
 
-# Collect exact libs Chromium needs via ldd, copy to a staging dir for clean COPY
+# Collect exact libs Chromium needs via ldd into a staging dir
 RUN mkdir -p /chromium-libs && \
     ldd /usr/bin/chromium 2>/dev/null \
         | awk '/=>/{print $3}' \
         | grep '^/' \
         | sort -u \
         | xargs -I{} cp -L {} /chromium-libs/ && \
-    # Also grab libs from the chromium internal dir (swiftshader, etc.)
-    find /usr/lib/chromium -name '*.so*' -exec cp -L {} /chromium-libs/ \; 2>/dev/null || true
+    find /usr/lib/chromium -name '*.so*' \
+        -exec cp -L {} /chromium-libs/ \; 2>/dev/null || true
 
-# Install community Playwright node (needs build tools for native addons)
+# Install community Playwright node
 RUN mkdir -p /home/node/.n8n/custom && \
     cd /home/node/.n8n/custom && \
     npm install n8n-nodes-playwright && \
@@ -46,37 +45,41 @@ RUN BROWSER_BASE=/home/node/.n8n/custom/node_modules/n8n-nodes-playwright/dist/n
     printf '#!/bin/sh\nexit 0\n' > "${BROWSER_BASE}/firefox-1511/linux/firefox" && \
     chmod +x "${BROWSER_BASE}/firefox-1511/linux/firefox"
 
-# Patch setup-browsers to no-op so it doesn't re-run at container start
-RUN SETUP=$(find /home/node/.n8n/custom/node_modules/n8n-nodes-playwright \
-        -name "setup-browsers*" -type f 2>/dev/null | head -n 1) && \
-    [ -n "$SETUP" ] && \
-    echo "// patched: system chromium used, browser download disabled" > "$SETUP" || true
+# Patch ALL setup-browsers files (both .ts source and compiled .js).
+# n8n executes the compiled .js — patching only .ts has no effect at runtime.
+RUN find /home/node/.n8n/custom/node_modules/n8n-nodes-playwright \
+        \( -name "setup-browsers.ts" -o -name "setup-browsers.js" \) \
+        -type f \
+        | while read f; do \
+            echo "// patched: system chromium used, browser download disabled" > "$f"; \
+            echo "[BUILD] Patched $f"; \
+          done
 
-# ── Stage 2: n8n hardened image (no apk available) ───────────────────────────
+# ── Stage 2: n8n hardened image (no apk) ──────────────────────────────────────
 FROM n8nio/n8n:${N8N_VERSION}
 
 USER root
 
-# Copy Chromium binary + wrapper + internal libs
+# Chromium binary + wrapper script (chromium-browser is a shell script calling /usr/bin/chromium)
 COPY --from=builder /usr/bin/chromium-browser /usr/bin/chromium-browser
 COPY --from=builder /usr/bin/chromium         /usr/bin/chromium
 COPY --from=builder /usr/lib/chromium         /usr/lib/chromium
 
-# Copy all libs collected by ldd in one shot — no more manual .so list
+# All shared libs collected by ldd — no manual list, no missing .so surprises
 COPY --from=builder /chromium-libs            /usr/lib/
 
-# Copy su-exec for privilege drop in entrypoint
+# su-exec for privilege drop
 COPY --from=builder /sbin/su-exec             /usr/local/bin/su-exec
 
-# Copy fonts
+# Fonts
 COPY --from=builder /usr/share/fonts          /usr/share/fonts
 
-# Copy pre-built community node (native addons already compiled)
+# Pre-built community node (native addons compiled, setup-browsers patched)
 COPY --from=builder /home/node/.n8n/custom    /home/node/.n8n/custom
 RUN chown -R node:node /home/node/.n8n
 
-COPY execution-hooks.js                       /home/node/execution-hooks.js
-COPY --chmod=755 entrypoint.sh                /entrypoint.sh
+COPY execution-hooks.js      /home/node/execution-hooks.js
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
 ENV \
     N8N_DEFAULT_TIMEOUT=900000 \
