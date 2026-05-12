@@ -16,48 +16,45 @@ RUN apk add --no-cache \
     dbus dbus-libs \
     su-exec curl
 
-# Debug: print actual paths so CI logs show what exists
+# Debug: show actual paths in CI logs — check these if next build fails
 RUN echo "=== Chromium ===" && ls -la /usr/bin/chromium* /usr/lib/chromium/chromium 2>/dev/null || true && \
     echo "=== Xvfb ===" && ls -la /usr/bin/Xvfb 2>/dev/null || true && \
-    echo "=== su-exec ===" && find /usr /sbin -name su-exec 2>/dev/null || true
+    echo "=== su-exec ===" && find / -name "su-exec" -not -path "*/proc/*" 2>/dev/null && \
+    echo "=== curl ===" && which curl 2>/dev/null || true
 
-# Collect ALL runtime libs into one flat export dir
-# find + cp avoids guessing exact versioned .so filenames
-RUN mkdir -p /libs-export && \
+# Stage 1b: collect all tools + libs into /export — no more hardcoded paths in Stage 2
+RUN mkdir -p /export/bin /export/lib && \
+    \
+    # Copy binaries by finding them — path-agnostic
+    cp $(which chromium-browser 2>/dev/null || find /usr -name chromium-browser -type f 2>/dev/null | head -1) /export/bin/chromium-browser 2>/dev/null || true && \
+    cp $(find /usr/lib/chromium /usr/bin -name "chromium" -type f 2>/dev/null | head -1) /export/bin/chromium 2>/dev/null || true && \
+    cp $(which Xvfb 2>/dev/null || find /usr -name Xvfb -type f 2>/dev/null | head -1) /export/bin/Xvfb 2>/dev/null || true && \
+    cp $(find / -name "su-exec" -type f -not -path "*/proc/*" 2>/dev/null | head -1) /export/bin/su-exec 2>/dev/null || true && \
+    cp $(which curl 2>/dev/null) /export/bin/curl 2>/dev/null || true && \
+    \
+    # Collect all matching .so files (real files, not symlinks) into flat /export/lib
     find /usr/lib /lib -name "*.so*" -type f \
-      \( -name "libX*.so*" \
-      -o -name "libx*.so*" \
-      -o -name "libGL*.so*" \
-      -o -name "libEGL*.so*" \
+      \( -name "libX*.so*" -o -name "libx*.so*" \
+      -o -name "libGL*.so*" -o -name "libEGL*.so*" \
       -o -name "libpixman*.so*" \
-      -o -name "libxfont*.so*" \
-      -o -name "libXfont*.so*" \
-      -o -name "libfreetype*.so*" \
-      -o -name "libharfbuzz*.so*" \
-      -o -name "libnss*.so*" \
-      -o -name "libnspr*.so*" \
-      -o -name "libsmime*.so*" \
-      -o -name "libssl3*.so*" \
-      -o -name "libplds*.so*" \
-      -o -name "libplc*.so*" \
-      -o -name "libasound*.so*" \
-      -o -name "libdbus*.so*" \
-      -o -name "libglib*.so*" \
-      -o -name "libgobject*.so*" \
-      -o -name "libgio*.so*" \
-      -o -name "libpango*.so*" \
-      -o -name "libcairo*.so*" \
-      -o -name "libgbm*.so*" \
-      -o -name "libxkbcommon*.so*" \
-      -o -name "libatspi*.so*" \
-      -o -name "libcups*.so*" \
-      -o -name "libdrm*.so*" \
-      -o -name "libstdc++*.so*" \
-      -o -name "libgcc_s*.so*" \
-      -o -name "libnettle*.so*" \
-      -o -name "libbsd*.so*" \
+      -o -name "libxfont*.so*" -o -name "libXfont*.so*" \
+      -o -name "libfreetype*.so*" -o -name "libharfbuzz*.so*" \
+      -o -name "libnss*.so*" -o -name "libnspr*.so*" \
+      -o -name "libsmime*.so*" -o -name "libssl3*.so*" \
+      -o -name "libplds*.so*" -o -name "libplc*.so*" \
+      -o -name "libasound*.so*" -o -name "libdbus*.so*" \
+      -o -name "libglib*.so*" -o -name "libgobject*.so*" -o -name "libgio*.so*" \
+      -o -name "libpango*.so*" -o -name "libcairo*.so*" \
+      -o -name "libgbm*.so*" -o -name "libxkbcommon*.so*" \
+      -o -name "libatspi*.so*" -o -name "libcups*.so*" \
+      -o -name "libdrm*.so*" -o -name "libstdc++*.so*" \
+      -o -name "libgcc_s*.so*" -o -name "libnettle*.so*" \
+      -o -name "libbsd*.so*" -o -name "libfontenc*.so*" \
       \) \
-      -exec cp -n {} /libs-export/ \;
+      -exec cp -n {} /export/lib/ \; && \
+    \
+    echo "=== /export/bin ===" && ls -la /export/bin/ && \
+    echo "=== /export/lib count ===" && ls /export/lib/ | wc -l
 
 # Install community node (needs python3/make/g++)
 RUN mkdir -p /home/node/.n8n/custom && \
@@ -84,20 +81,18 @@ RUN BROWSER_BASE=/home/node/.n8n/custom/node_modules/n8n-nodes-playwright/dist/n
 FROM n8nio/n8n:${N8N_VERSION}
 USER root
 
-# Chromium: wrapper + actual binary + full lib dir
-COPY --from=browser-installer /usr/bin/chromium-browser /usr/bin/chromium-browser
-COPY --from=browser-installer /usr/bin/chromium /usr/bin/chromium
+# Binaries from export dir
+COPY --from=browser-installer /export/bin/chromium-browser /usr/bin/chromium-browser
+COPY --from=browser-installer /export/bin/chromium /usr/bin/chromium
+COPY --from=browser-installer /export/bin/Xvfb /usr/bin/Xvfb
+COPY --from=browser-installer /export/bin/su-exec /usr/local/bin/su-exec
+COPY --from=browser-installer /export/bin/curl /usr/bin/curl
+
+# Full chromium lib dir
 COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 
-# Xvfb binary
-COPY --from=browser-installer /usr/bin/Xvfb /usr/bin/Xvfb
-
-# Runtime tools (distroless has none)
-COPY --from=browser-installer /usr/sbin/su-exec /usr/local/bin/su-exec
-COPY --from=browser-installer /usr/bin/curl /usr/bin/curl
-
-# All shared libs in one shot — no more per-file path guessing
-COPY --from=browser-installer /libs-export/ /usr/lib/
+# All shared libs — single dir copy, no path guessing
+COPY --from=browser-installer /export/lib/ /usr/lib/
 
 # Pre-create ms-playwright cache dir (prevents runtime re-download attempt)
 RUN mkdir -p /home/node/.cache/ms-playwright/chromium-1148/chrome-linux && \
