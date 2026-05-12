@@ -1,62 +1,75 @@
-name: Build and Push Docker Image
+name: Build and Push
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      n8n_version:
+        description: 'n8n version to build'
+        required: false
+        default: ''
 
-permissions:
-  contents: read
-  packages: write
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/n8n-playwright
 
 jobs:
-  build:
+  build-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
+      # Resolve version: workflow_dispatch input > repo variable > hardcoded default
+      - name: Resolve n8n version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.n8n_version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${{ vars.N8N_VERSION }}"
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION="2.19.5"
+          fi
+          echo "n8n_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building n8n version: $VERSION"
 
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Expose N8N_VERSION as an env var so metadata-action can use it as a tag
-      - name: Resolve N8N_VERSION
-        id: n8n_version
-        run: echo "value=${{ vars.N8N_VERSION || '2.19.5' }}" >> $GITHUB_OUTPUT
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/n8n-playwright
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ steps.n8n_version.outputs.value }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=n8n-${{ steps.version.outputs.n8n_version }}
+            type=sha,prefix=sha-
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: .
+          push: true
+          # Build for both amd64 and arm64 (Proxmox/VPS compatibility)
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            N8N_VERSION=${{ steps.n8n_version.outputs.value }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            N8N_VERSION=${{ steps.version.outputs.n8n_version }}
+          # Cache layers in GHCR for faster rebuilds
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max

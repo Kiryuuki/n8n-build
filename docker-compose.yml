@@ -1,26 +1,26 @@
 services:
   n8n:
-    image: ghcr.io/kiryuuki/n8n-playwright:2.19.5
+    # To build locally or in Dokploy from source, uncomment 'build' and comment 'image'.
+    # To pull pre-built image from GHCR, use 'image' only.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        N8N_VERSION: ${N8N_VERSION:-2.19.5}
+    # image: ghcr.io/kiryuuki/n8n-playwright:latest
     container_name: n8n-playwright
     restart: unless-stopped
     env_file: .env
     ports:
       - "5678:5678"
-      - "127.0.0.1:9222:9222" # Security: Bind CDP to localhost only
+      - "9222:9222"
     volumes:
       - n8n_data:/home/node/.n8n
       - n8n_files:/home/node/files
-    deploy:
-      resources:
-        limits:
-          memory: 2G # Stability: Prevent Chromium from exhausting host memory
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
+    # Chromium needs /dev/shm for shared memory; default Docker limit (64MB) causes crashes
+    shm_size: "256mb"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -1,141 +1,106 @@
 ARG N8N_VERSION=2.19.5
 
-# ── Stage 1: Alpine 3.22 builder ──────────────────────────────────────────────
-# n8nio/base IS Alpine 3.22 + musl — same libc, binaries are compatible.
-# apk is stripped from the n8n image so we install everything here and copy over.
+# ── Stage 1: Alpine — build Chromium env + community node ─────────────────────
+# Must use same Alpine version as n8nio/base to ensure musl ABI compatibility.
 FROM alpine:3.22 AS builder
 
+# Build tools + Chromium + all runtime libs Chromium needs
 RUN apk add --no-cache \
     python3 make g++ nodejs npm \
-    chromium xvfb \
-    mesa-gl \
-    nss freetype harfbuzz \
-    ca-certificates ttf-freefont font-noto-emoji \
-    udev libstdc++ alsa-lib at-spi2-core cups-libs libdrm \
-    libxcomposite libxdamage libxfixes libxkbcommon libxrandr \
+    chromium \
+    nss freetype harfbuzz ca-certificates \
+    ttf-freefont font-noto-emoji \
+    libstdc++ alsa-lib at-spi2-core \
+    cups-libs libdrm libxcomposite libxdamage \
+    libxfixes libxkbcommon libxrandr \
     mesa-gbm pango cairo glib gtk+3.0 \
-    dbus dbus-libs \
-    su-exec curl
+    dbus dbus-libs udev
 
-# Print exact paths into build log — reference these if Stage 2 COPY fails
-RUN echo "=== BIN ===" && \
-    ls -la /usr/bin/chromium-browser /usr/bin/chromium /usr/bin/Xvfb /usr/bin/curl && \
-    ls -la /usr/lib/chromium/chromium && \
-    echo "=== SU-EXEC ===" && find / -name su-exec -not -path "*/proc/*" 2>/dev/null && \
-    echo "=== KEY LIBS ===" && \
-    ls /usr/lib/libGL.so.1 \
-       /usr/lib/libpixman-1.so.0 \
-       /usr/lib/libXfont2.so.2 \
-       /usr/lib/libXdmcp.so.6 \
-       /usr/lib/libXau.so.6 \
-       /usr/lib/libnettle.so.8 \
-       /usr/lib/libfontenc.so.1 2>/dev/null || echo "some libs missing — check paths above"
-
-# Community node
+# Install community Playwright node where build tools are available
 RUN mkdir -p /home/node/.n8n/custom && \
     cd /home/node/.n8n/custom && \
     npm install n8n-nodes-playwright && \
     npm cache clean --force
 
-# Wire Playwright → system Chromium (both paths the node checks)
+# Symlink system Chromium so Playwright node skips its own browser download.
+# The setup-browsers script checks for chrome binary; symlink satisfies the check.
 RUN BROWSER_BASE=/home/node/.n8n/custom/node_modules/n8n-nodes-playwright/dist/nodes/browsers && \
+    # Find the chromium dir (versioned), create if not present
     CHROMIUM_DIR=$(ls -d ${BROWSER_BASE}/chromium-* 2>/dev/null | head -n 1) && \
-    if [ -z "$CHROMIUM_DIR" ]; then CHROMIUM_DIR="${BROWSER_BASE}/chromium-1148"; fi && \
+    [ -z "$CHROMIUM_DIR" ] && CHROMIUM_DIR="${BROWSER_BASE}/chromium-1148" ; \
     mkdir -p ${CHROMIUM_DIR}/chrome-linux && \
-    ln -sf /usr/lib/chromium/chromium ${CHROMIUM_DIR}/chrome-linux/chrome && \
+    ln -sf /usr/bin/chromium-browser ${CHROMIUM_DIR}/chrome-linux/chrome && \
+    # Stub out webkit + firefox so Playwright doesn't try to download them
     mkdir -p "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk" && \
-    printf '#!/bin/sh\n' > "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
+    printf '#!/bin/sh\nexit 0\n' > "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
     chmod +x "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
-    mkdir -p ${BROWSER_BASE}/firefox-1511/linux && \
-    touch ${BROWSER_BASE}/firefox-1511/linux/firefox && \
-    chmod +x ${BROWSER_BASE}/firefox-1511/linux/firefox && \
-    mkdir -p /home/node/.cache/ms-playwright/chromium-1148/chrome-linux && \
-    ln -sf /usr/lib/chromium/chromium /home/node/.cache/ms-playwright/chromium-1148/chrome-linux/chrome
+    mkdir -p "${BROWSER_BASE}/firefox-1511/linux" && \
+    printf '#!/bin/sh\nexit 0\n' > "${BROWSER_BASE}/firefox-1511/linux/firefox" && \
+    chmod +x "${BROWSER_BASE}/firefox-1511/linux/firefox"
 
-# ── Stage 2: n8n distroless Alpine base ───────────────────────────────────────
+# Patch the Playwright community node's setup script to be a no-op at runtime.
+# Without this, n8n re-runs setup-browsers.ts on every start and fails because
+# it can't sudo-install deps or write to /usr/bin inside a container.
+RUN SETUP_SCRIPT=$(find /home/node/.n8n/custom/node_modules/n8n-nodes-playwright \
+        -name "setup-browsers*" -type f 2>/dev/null | head -n 1) && \
+    if [ -n "$SETUP_SCRIPT" ]; then \
+        echo "// patched: browser setup disabled, system chromium used via symlink" > "$SETUP_SCRIPT"; \
+    fi
+
+# ── Stage 2: Final image (same Alpine 3.22 base as n8nio/n8n) ─────────────────
 FROM n8nio/n8n:${N8N_VERSION}
+
 USER root
 
-# Binaries
-COPY --from=builder /usr/bin/chromium-browser /usr/bin/chromium-browser
-COPY --from=builder /usr/bin/chromium /usr/bin/chromium
-COPY --from=builder /usr/bin/Xvfb /usr/bin/Xvfb
-COPY --from=builder /usr/bin/curl /usr/bin/curl
-COPY --from=builder /usr/lib/chromium /usr/lib/chromium
-COPY --from=builder /sbin/su-exec /usr/local/bin/su-exec
+# Install Chromium and its runtime dependencies directly in the final image.
+# This is simpler and more correct than cross-copying individual .so files —
+# Alpine's apk resolves the full dependency tree without ABI guesswork.
+RUN apk add --no-cache \
+    chromium \
+    nss freetype harfbuzz ca-certificates \
+    ttf-freefont font-noto-emoji \
+    libstdc++ alsa-lib at-spi2-core \
+    cups-libs libdrm libxcomposite libxdamage \
+    libxfixes libxkbcommon libxrandr \
+    mesa-gbm pango cairo glib gtk+3.0 \
+    dbus dbus-libs udev \
+    su-exec
 
-# Shared libs — same musl/Alpine 3.22, fully compatible
-COPY --from=builder /usr/lib/libGL.so.1 /usr/lib/libGL.so.1
-COPY --from=builder /usr/lib/libGLdispatch.so.0 /usr/lib/libGLdispatch.so.0
-COPY --from=builder /usr/lib/libpixman-1.so.0 /usr/lib/libpixman-1.so.0
-COPY --from=builder /usr/lib/libXfont2.so.2 /usr/lib/libXfont2.so.2
-COPY --from=builder /usr/lib/libXdmcp.so.6 /usr/lib/libXdmcp.so.6
-COPY --from=builder /usr/lib/libXau.so.6 /usr/lib/libXau.so.6
-COPY --from=builder /usr/lib/libX11.so.6 /usr/lib/libX11.so.6
-COPY --from=builder /usr/lib/libXext.so.6 /usr/lib/libXext.so.6
-COPY --from=builder /usr/lib/libXfixes.so.3 /usr/lib/libXfixes.so.3
-COPY --from=builder /usr/lib/libXrender.so.1 /usr/lib/libXrender.so.1
-COPY --from=builder /usr/lib/libXxf86vm.so.1 /usr/lib/libXxf86vm.so.1
-COPY --from=builder /usr/lib/libxcb.so.1 /usr/lib/libxcb.so.1
-COPY --from=builder /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6
-COPY --from=builder /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
-COPY --from=builder /usr/lib/libdbus-1.so.3 /usr/lib/libdbus-1.so.3
-COPY --from=builder /usr/lib/libnss3.so /usr/lib/libnss3.so
-COPY --from=builder /usr/lib/libnssutil3.so /usr/lib/libnssutil3.so
-COPY --from=builder /usr/lib/libsmime3.so /usr/lib/libsmime3.so
-COPY --from=builder /usr/lib/libssl3.so /usr/lib/libssl3.so
-COPY --from=builder /usr/lib/libplds4.so /usr/lib/libplds4.so
-COPY --from=builder /usr/lib/libplc4.so /usr/lib/libplc4.so
-COPY --from=builder /usr/lib/libnspr4.so /usr/lib/libnspr4.so
-COPY --from=builder /usr/lib/libfreetype.so.6 /usr/lib/libfreetype.so.6
-COPY --from=builder /usr/lib/libharfbuzz.so.0 /usr/lib/libharfbuzz.so.0
-COPY --from=builder /usr/lib/libasound.so.2 /usr/lib/libasound.so.2
-COPY --from=builder /usr/lib/libglib-2.0.so.0 /usr/lib/libglib-2.0.so.0
-COPY --from=builder /usr/lib/libgobject-2.0.so.0 /usr/lib/libgobject-2.0.so.0
-COPY --from=builder /usr/lib/libgio-2.0.so.0 /usr/lib/libgio-2.0.so.0
-COPY --from=builder /usr/lib/libpango-1.0.so.0 /usr/lib/libpango-1.0.so.0
-COPY --from=builder /usr/lib/libcairo.so.2 /usr/lib/libcairo.so.2
-COPY --from=builder /usr/lib/libgbm.so.1 /usr/lib/libgbm.so.1
-COPY --from=builder /usr/lib/libxkbcommon.so.0 /usr/lib/libxkbcommon.so.0
-COPY --from=builder /usr/lib/libatspi.so.0 /usr/lib/libatspi.so.0
-COPY --from=builder /usr/lib/libcups.so.2 /usr/lib/libcups.so.2
-COPY --from=builder /usr/lib/libdrm.so.2 /usr/lib/libdrm.so.2
-COPY --from=builder /usr/lib/libnettle.so.8 /usr/lib/libnettle.so.8
-COPY --from=builder /usr/lib/libfontenc.so.1 /usr/lib/libfontenc.so.1
-COPY --from=builder /usr/lib/libbsd.so.0 /usr/lib/libbsd.so.0
-COPY --from=builder /usr/lib/libmd.so.0 /usr/lib/libmd.so.0
-
-# Community node + playwright cache
+# Copy pre-built community node from builder (avoids re-compiling native addons)
 COPY --from=builder /home/node/.n8n/custom /home/node/.n8n/custom
-COPY --from=builder /home/node/.cache /home/node/.cache
-RUN chown -R node:node /home/node/.n8n /home/node/.cache
 
+RUN chown -R node:node /home/node/.n8n
+
+# Copy app files
 COPY execution-hooks.js /home/node/execution-hooks.js
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
-ENV N8N_DEFAULT_TIMEOUT=900000 \
+# ── Environment ───────────────────────────────────────────────────────────────
+ENV \
+    # Timeouts
+    N8N_DEFAULT_TIMEOUT=900000 \
     EXECUTIONS_TIMEOUT=3600 \
     EXECUTIONS_TIMEOUT_MAX=7200 \
-    N8N_ENABLE_EXECUTE_COMMAND=false \
-    NODES_EXCLUDE=[] \
-    EXTERNAL_HOOK_FILES=/home/node/execution-hooks.js \
-    N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom \
-    N8N_ALLOWED_PATHS=/home/node/files \
-    NODE_FUNCTION_ALLOW_EXTERNAL=playwright,playwright-core \
-    NODE_FUNCTION_ALLOW_BUILTIN=crypto,path,url \
+    # Playwright: use system Chromium, skip any download attempts
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/lib/chromium \
-    PLAYWRIGHT_EXECUTABLE_PATH=/usr/lib/chromium/chromium \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/lib/chromium/chromium \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/bin \
+    PLAYWRIGHT_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    # n8n custom node + hooks
+    N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom \
+    EXTERNAL_HOOK_FILES=/home/node/execution-hooks.js \
+    N8N_ALLOWED_PATHS=/home/node/files \
+    # Allow external modules used by Playwright node
+    NODE_FUNCTION_ALLOW_EXTERNAL=playwright,playwright-core \
+    NODE_FUNCTION_ALLOW_BUILTIN=* \
+    N8N_ENABLE_EXECUTE_COMMAND=true \
+    # Community packages
     N8N_COMMUNITY_PACKAGES_ENABLED=true \
     N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true \
+    # Disable telemetry/noise
     N8N_DIAGNOSTICS_ENABLED=false \
     N8N_PERSONALIZATION_ENABLED=false \
     N8N_HIRING_BANNER_ENABLED=false \
-    N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true \
-    # Ensure musl linker finds copied libs
-    LD_LIBRARY_PATH=/usr/lib \
-    DISPLAY=:99
+    N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
 
 EXPOSE 5678 9222
 
