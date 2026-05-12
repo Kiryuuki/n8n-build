@@ -34,5 +34,6 @@ implementation_plan.md
 task.md
 walkthrough.md
 
-# Migrations (Managed manually)
+# Migrations and Audits
 supabase_migration.sql
+audit.md
