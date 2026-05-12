@@ -27,3 +27,12 @@ dist/
 .n8n/
 files/
 reference/
+
+# Project Planning and Artifacts
+gemini.md
+implementation_plan.md
+task.md
+walkthrough.md
+
+# Migrations (Managed manually)
+supabase_migration.sql
