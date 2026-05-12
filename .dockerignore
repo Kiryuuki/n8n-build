@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.git
+.github
+node_modules
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+supabase_migration.sql
+README.md
+gemini.md
+implementation_plan.md
+task.md
+walkthrough.md

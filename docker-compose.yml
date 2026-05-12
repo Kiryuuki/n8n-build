@@ -1,0 +1,16 @@
+services:
+  n8n:
+    image: ghcr.io/Kiryuuki/n8n-playwright:latest
+    container_name: n8n-playwright
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "5678:5678"
+      - "9222:9222"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - n8n_files:/home/node/files
+
+volumes:
+  n8n_data:
+  n8n_files:
