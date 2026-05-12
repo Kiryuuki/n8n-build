@@ -5,7 +5,6 @@ FROM alpine:3.22 AS browser-installer
 
 RUN apk add --no-cache \
     chromium \
-    chromium-chromedriver \
     xvfb \
     nss \
     freetype \
@@ -39,7 +38,6 @@ USER root
 
 # Copy Chromium binaries
 COPY --from=browser-installer /usr/bin/chromium-browser /usr/bin/chromium-browser
-COPY --from=browser-installer /usr/bin/chromium-chromedriver /usr/bin/chromium-chromedriver
 COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 
 # Copy Xvfb and su-exec
