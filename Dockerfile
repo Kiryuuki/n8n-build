@@ -30,23 +30,46 @@ RUN apk add --no-cache \
     glib \
     gtk+3.0 \
     dbus \
+    dbus-libs \
     su-exec
 
 # ── Stage 2: n8n hardened image — copy Chromium from Alpine ───────────────────
 FROM n8nio/n8n:${N8N_VERSION}
 USER root
 
-# Copy Chromium binary and required libs from Alpine stage
+# Copy Chromium binaries
 COPY --from=browser-installer /usr/bin/chromium-browser /usr/bin/chromium-browser
 COPY --from=browser-installer /usr/bin/chromium-chromedriver /usr/bin/chromium-chromedriver
 COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
+
+# Copy Xvfb and su-exec
 COPY --from=browser-installer /usr/bin/Xvfb /usr/bin/Xvfb
 COPY --from=browser-installer /usr/bin/su-exec /usr/bin/su-exec
 
-# Copy critical libs needed by Chromium
+# Copy all shared libs needed by Chromium (usr/lib)
 COPY --from=browser-installer /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6
 COPY --from=browser-installer /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
-COPY --from=browser-installer /lib/libdbus-1.so.3 /lib/libdbus-1.so.3
+COPY --from=browser-installer /usr/lib/libdbus-1.so.3 /usr/lib/libdbus-1.so.3
+COPY --from=browser-installer /usr/lib/libnss3.so /usr/lib/libnss3.so
+COPY --from=browser-installer /usr/lib/libnssutil3.so /usr/lib/libnssutil3.so
+COPY --from=browser-installer /usr/lib/libsmime3.so /usr/lib/libsmime3.so
+COPY --from=browser-installer /usr/lib/libssl3.so /usr/lib/libssl3.so
+COPY --from=browser-installer /usr/lib/libplds4.so /usr/lib/libplds4.so
+COPY --from=browser-installer /usr/lib/libplc4.so /usr/lib/libplc4.so
+COPY --from=browser-installer /usr/lib/libnspr4.so /usr/lib/libnspr4.so
+COPY --from=browser-installer /usr/lib/libfreetype.so.6 /usr/lib/libfreetype.so.6
+COPY --from=browser-installer /usr/lib/libharfbuzz.so.0 /usr/lib/libharfbuzz.so.0
+COPY --from=browser-installer /usr/lib/libasound.so.2 /usr/lib/libasound.so.2
+COPY --from=browser-installer /usr/lib/libglib-2.0.so.0 /usr/lib/libglib-2.0.so.0
+COPY --from=browser-installer /usr/lib/libgobject-2.0.so.0 /usr/lib/libgobject-2.0.so.0
+COPY --from=browser-installer /usr/lib/libgio-2.0.so.0 /usr/lib/libgio-2.0.so.0
+COPY --from=browser-installer /usr/lib/libpango-1.0.so.0 /usr/lib/libpango-1.0.so.0
+COPY --from=browser-installer /usr/lib/libcairo.so.2 /usr/lib/libcairo.so.2
+COPY --from=browser-installer /usr/lib/libgbm.so.1 /usr/lib/libgbm.so.1
+COPY --from=browser-installer /usr/lib/libxkbcommon.so.0 /usr/lib/libxkbcommon.so.0
+COPY --from=browser-installer /usr/lib/libatspi.so.0 /usr/lib/libatspi.so.0
+COPY --from=browser-installer /usr/lib/libcups.so.2 /usr/lib/libcups.so.2
+COPY --from=browser-installer /usr/lib/libdrm.so.2 /usr/lib/libdrm.so.2
 
 # Pre-install community node at build time
 RUN mkdir -p /home/node/.n8n/custom && \
