@@ -1,13 +1,11 @@
 services:
   n8n:
-    # To build locally or in Dokploy from source, uncomment 'build' and comment 'image'.
-    # To pull pre-built image from GHCR, use 'image' only.
     build:
       context: .
       dockerfile: Dockerfile
       args:
         N8N_VERSION: ${N8N_VERSION:-2.19.5}
-    # image: ghcr.io/kiryuuki/n8n-playwright:latest
+    image: n8n-playwright:local
     container_name: n8n-playwright
     restart: unless-stopped
     env_file: .env
@@ -17,7 +15,7 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - n8n_files:/home/node/files
-    # Chromium needs /dev/shm for shared memory; default Docker limit (64MB) causes crashes
+    # Chromium renderer uses shared memory — default Docker 64MB causes crashes
     shm_size: "256mb"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
