@@ -12,7 +12,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/n8n-playwright
 
 jobs:
   build-push:
@@ -24,6 +23,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # GHCR requires all-lowercase — github.repository_owner can have uppercase
+      - name: Set lowercase image name
+        id: image
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/n8n-playwright"
+          echo "full=$IMAGE" >> $GITHUB_OUTPUT
 
       # Resolve version: workflow_dispatch input > repo variable > hardcoded default
       - name: Resolve n8n version
@@ -53,7 +59,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.image.outputs.full }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=n8n-${{ steps.version.outputs.n8n_version }}
@@ -64,12 +70,11 @@ jobs:
         with:
           context: .
           push: true
-          # Build for both amd64 and arm64 (Proxmox/VPS compatibility)
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             N8N_VERSION=${{ steps.version.outputs.n8n_version }}
           # Cache layers in GHCR for faster rebuilds
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ steps.image.outputs.full }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.full }}:buildcache,mode=max
