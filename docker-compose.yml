@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: ghcr.io/Kiryuuki/n8n-playwright:latest
+    image: ghcr.io/kiryuuki/n8n-playwright:latest
     container_name: n8n-playwright
     restart: unless-stopped
     env_file: .env
@@ -10,6 +10,12 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - n8n_files:/home/node/files
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 volumes:
   n8n_data:
