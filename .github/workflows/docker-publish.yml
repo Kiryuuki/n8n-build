@@ -32,6 +32,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Expose N8N_VERSION as an env var so metadata-action can use it as a tag
+      - name: Resolve N8N_VERSION
+        id: n8n_version
+        run: echo "value=${{ vars.N8N_VERSION || '2.19.5' }}" >> $GITHUB_OUTPUT
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -41,6 +46,7 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.n8n_version.outputs.value }},enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -51,6 +57,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            N8N_VERSION=${{ vars.N8N_VERSION || '2.19.5' }}
+            N8N_VERSION=${{ steps.n8n_version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
