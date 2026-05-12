@@ -4,51 +4,17 @@ ARG N8N_VERSION=2.19.5
 FROM alpine:3.22 AS browser-installer
 
 RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    nodejs \
-    npm \
+    python3 make g++ nodejs npm \
     chromium \
     xvfb \
-    # Xvfb runtime libs (missing in original → caused symbol not found errors)
     mesa-gl \
-    mesa-glx-compat \
-    pixman \
-    libxfont2 \
-    libxdmcp \
-    libxau \
-    libx11 \
-    libxext \
-    libxfixes \
-    libxrender \
-    # Chromium runtime libs
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    font-noto-emoji \
-    udev \
-    libstdc++ \
-    alsa-lib \
-    at-spi2-core \
-    cups-libs \
-    libdrm \
-    libxcomposite \
-    libxdamage \
-    libxkbcommon \
-    libxrandr \
-    mesa-gbm \
-    pango \
-    cairo \
-    glib \
-    gtk+3.0 \
-    dbus \
-    dbus-libs \
-    # Runtime tools (distroless base has none of these)
-    su-exec \
-    curl
+    nss freetype harfbuzz \
+    ca-certificates ttf-freefont font-noto-emoji \
+    udev libstdc++ alsa-lib at-spi2-core cups-libs libdrm \
+    libxcomposite libxdamage libxfixes libxkbcommon libxrandr \
+    mesa-gbm pango cairo glib gtk+3.0 \
+    dbus dbus-libs \
+    su-exec curl
 
 # Confirm actual Chromium binary paths (Alpine uses wrapper + real binary)
 RUN echo "=== Chromium paths ===" && \
@@ -89,7 +55,7 @@ COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 COPY --from=browser-installer /usr/bin/Xvfb /usr/bin/Xvfb
 
 # ── Runtime tools (distroless has none) ───────────────────────────────────────
-COPY --from=browser-installer /usr/local/bin/su-exec /usr/local/bin/su-exec
+COPY --from=browser-installer /usr/sbin/su-exec /usr/local/bin/su-exec
 COPY --from=browser-installer /usr/bin/curl /usr/bin/curl
 
 # ── Xvfb shared libs (previously missing → caused symbol not found) ───────────
@@ -158,7 +124,6 @@ ENV N8N_DEFAULT_TIMEOUT=900000 \
     PLAYWRIGHT_EXECUTABLE_PATH=/usr/lib/chromium/chromium \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/lib/chromium/chromium \
     N8N_COMMUNITY_PACKAGES_ENABLED=true \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/lib/chromium/chromium \
     N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true \
     N8N_DIAGNOSTICS_ENABLED=false \
     N8N_PERSONALIZATION_ENABLED=false \
