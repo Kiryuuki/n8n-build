@@ -1,9 +1,15 @@
 ARG N8N_VERSION=2.19.5
 
-# ── Stage 1: Alpine — install Chromium and system deps ────────────────────────
+# ── Stage 1: Alpine — install Chromium + build community node ─────────────────
 FROM alpine:3.22 AS browser-installer
 
+# Build tools needed for native node addons (isolated-vm etc)
 RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    nodejs \
+    npm \
     chromium \
     xvfb \
     nss \
@@ -32,11 +38,32 @@ RUN apk add --no-cache \
     dbus-libs \
     su-exec
 
-# ── Stage 2: n8n hardened image — copy Chromium from Alpine ───────────────────
+# Install community node here where python3/make/g++ are available
+RUN mkdir -p /home/node/.n8n/custom && \
+    cd /home/node/.n8n/custom && \
+    npm install n8n-nodes-playwright && \
+    npm cache clean --force
+
+# Symlink system Chromium for Playwright binary check
+RUN BROWSER_BASE=/home/node/.n8n/custom/node_modules/n8n-nodes-playwright/dist/nodes/browsers && \
+    CHROMIUM_DIR=$(ls -d ${BROWSER_BASE}/chromium-* 2>/dev/null | head -n 1) && \
+    if [ -z "$CHROMIUM_DIR" ]; then \
+        CHROMIUM_DIR="${BROWSER_BASE}/chromium-1148"; \
+    fi && \
+    mkdir -p ${CHROMIUM_DIR}/chrome-linux && \
+    ln -sf /usr/bin/chromium-browser ${CHROMIUM_DIR}/chrome-linux/chrome && \
+    mkdir -p "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk" && \
+    echo "#!/bin/sh" > "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
+    chmod +x "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
+    mkdir -p ${BROWSER_BASE}/firefox-1511/linux && \
+    touch ${BROWSER_BASE}/firefox-1511/linux/firefox && \
+    chmod +x ${BROWSER_BASE}/firefox-1511/linux/firefox
+
+# ── Stage 2: n8n hardened image ───────────────────────────────────────────────
 FROM n8nio/n8n:${N8N_VERSION}
 USER root
 
-# Copy Chromium binaries
+# Copy Chromium binary and libs from Alpine stage
 COPY --from=browser-installer /usr/bin/chromium-browser /usr/bin/chromium-browser
 COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 
@@ -44,7 +71,7 @@ COPY --from=browser-installer /usr/lib/chromium /usr/lib/chromium
 COPY --from=browser-installer /usr/bin/Xvfb /usr/bin/Xvfb
 COPY --from=browser-installer /sbin/su-exec /usr/local/bin/su-exec
 
-# Copy all shared libs needed by Chromium (usr/lib)
+# Copy shared libs needed by Chromium
 COPY --from=browser-installer /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6
 COPY --from=browser-installer /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
 COPY --from=browser-installer /usr/lib/libdbus-1.so.3 /usr/lib/libdbus-1.so.3
@@ -69,27 +96,9 @@ COPY --from=browser-installer /usr/lib/libatspi.so.0 /usr/lib/libatspi.so.0
 COPY --from=browser-installer /usr/lib/libcups.so.2 /usr/lib/libcups.so.2
 COPY --from=browser-installer /usr/lib/libdrm.so.2 /usr/lib/libdrm.so.2
 
-# Pre-install community node at build time
-RUN mkdir -p /home/node/.n8n/custom && \
-    cd /home/node/.n8n/custom && \
-    npm install n8n-nodes-playwright && \
-    npm cache clean --force
-
-# Symlink system Chromium for Playwright binary check
-RUN BROWSER_BASE=/home/node/.n8n/custom/node_modules/n8n-nodes-playwright/dist/nodes/browsers && \
-    CHROMIUM_DIR=$(ls -d ${BROWSER_BASE}/chromium-* 2>/dev/null | head -n 1) && \
-    if [ -z "$CHROMIUM_DIR" ]; then \
-        CHROMIUM_DIR="${BROWSER_BASE}/chromium-1148"; \
-    fi && \
-    mkdir -p ${CHROMIUM_DIR}/chrome-linux && \
-    ln -sf /usr/bin/chromium-browser ${CHROMIUM_DIR}/chrome-linux/chrome && \
-    mkdir -p "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk" && \
-    echo "#!/bin/sh" > "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
-    chmod +x "${BROWSER_BASE}/webkit-2272/webkit-1/minibrowser-gtk/pw_run.sh" && \
-    mkdir -p ${BROWSER_BASE}/firefox-1511/linux && \
-    touch ${BROWSER_BASE}/firefox-1511/linux/firefox && \
-    chmod +x ${BROWSER_BASE}/firefox-1511/linux/firefox && \
-    chown -R node:node /home/node/.n8n
+# Copy pre-built community node from Alpine stage
+COPY --from=browser-installer /home/node/.n8n/custom /home/node/.n8n/custom
+RUN chown -R node:node /home/node/.n8n
 
 # Copy hooks and entrypoint
 COPY execution-hooks.js /home/node/execution-hooks.js
